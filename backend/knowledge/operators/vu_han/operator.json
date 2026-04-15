@@ -1,0 +1,14 @@
+{
+  "operator_id": "vu_han",
+  "display_name": "Nhà xe Vũ Hán",
+  "logo_url": "",
+  "supported_vehicles": ["bus", "limousine"],
+  "default_timezone": "Asia/Ho_Chi_Minh",
+  "knowledge_version": "2026-04-01",
+  "active": true,
+  "contact": {
+    "fanpage": "facebook.com/vuhangroup",
+    "zalo_oa": "Xe khách Vũ Hán",
+    "hotline": "0912 037 237"
+  }
+}

@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Environment variables (chứa API keys, secrets)
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Prisma
+prisma/migrations/
+
+# Misc
+.cache/
