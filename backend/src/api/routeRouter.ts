@@ -183,12 +183,15 @@ router.get('/schedule', async (req: Request, res: Response) => {
         from: result.from,
         to: result.to,
         vehicleType: d.vehicle_label,
-        price: 0, // Price is in checkRouteAndPrice
+        price: 0,
         availableSeats: undefined
       })),
       from: result.from,
       to: result.to,
-      total: result.departures.length
+      total: result.departures.length,
+      qa_response: result.qa_response,          // Câu trả lời từ Markdown FAQ
+      has_direct_answer: result.has_direct_answer,
+      source: result.source,
     });
 
   } catch (error) {

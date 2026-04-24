@@ -1,10 +1,10 @@
 /**
  * Tool lấy lịch các chuyến xe
- * Sử dụng Q&A từ Knowledge Service (493 cặp hỏi đáp)
+ * Q&A từ Knowledge Store Markdown + baseSchedules dự phòng
  */
 
 import { normalizePlace } from '../utils/placeNormalizer';
-import { knowledgeService } from '../services/KnowledgeService';
+import { knowledgeService, RouteEntry } from '../services/KnowledgeService';
 
 export interface DepartureInfo {
   time: string;
@@ -20,10 +20,12 @@ export interface DepartureResult {
   to: string;
   departures: DepartureInfo[];
   source: string;
-  qa_response?: string;
+  qa_response?: string;        // Câu trả lời từ Q&A Markdown — AI PHẢI dùng cái này khi departures rỗng
+  route_info?: string;         // Thông tin lộ trình từ Markdown
+  has_direct_answer: boolean;  // Cho AI biết có câu trả lời sẵn không
 }
 
-// Dữ liệu lịch chạy cơ bản - bổ sung bởi Q&A từ Knowledge Service
+// Dữ liệu lịch chạy cơ bản (hardcode cho các tuyến chính)
 const baseSchedules: { [key: string]: DepartureInfo[] } = {
   'ha_noi|xin_man': [
     { time: '05:30', vehicle_type: 'bus', vehicle_label: 'Xe giường', eta_destination: '~14:00', note: '' },
@@ -77,7 +79,6 @@ export async function getDepartureTimes(
   vehicle?: string,
   date?: string
 ): Promise<DepartureResult> {
-  // Đảm bảo Knowledge Service đã khởi tạo
   await knowledgeService.init();
 
   const normalizedFrom = normalizePlace(from);
@@ -86,33 +87,57 @@ export async function getDepartureTimes(
   const scheduleKey = `${normalizedFrom.normalized}|${normalizedTo.normalized}`;
   let departures = baseSchedules[scheduleKey] || [];
 
-  // Tìm Q&A phù hợp từ Knowledge Service
-  const query = `${from} ${to} mấy giờ`;
-  const qaMatches = knowledgeService.searchQA(query);
-  
-  let qaResponse: string | undefined;
-  if (qaMatches.length > 0) {
-    // Tìm câu hỏi về giờ xe phù hợp nhất
-    const scheduleQA = qaMatches.find(qa => 
-      qa.question.toLowerCase().includes('mấy giờ') ||
-      qa.question.toLowerCase().includes('chuyến')
-    );
-    if (scheduleQA) {
-      qaResponse = scheduleQA.answer;
-    }
-  }
-
   // Lọc theo loại xe nếu có
   if (vehicle && vehicle !== 'all') {
     departures = departures.filter(d => d.vehicle_type === vehicle);
   }
+
+  // Tìm Q&A từ Markdown cho câu hỏi lịch chạy
+  // Tìm với nhiều dạng câu hỏi khác nhau để tăng độ bao phủ
+  const queries = [
+    `${from} ${to} mấy giờ`,
+    `${to} ${from} mấy giờ`,
+    `${from} đi ${to}`,
+    `${to} về ${from}`,
+    `${from} ${to} chuyến`,
+    `${from} ${to}`,
+  ];
+
+  let qaResponse: string | undefined;
+  let bestConfidence = 0;
+
+  for (const query of queries) {
+    const matches = knowledgeService.searchQA(query, 10);
+    
+    // Ưu tiên câu hỏi có chứa từ "mấy giờ" hoặc "chuyến"
+    const scheduleMatch = matches.find(qa =>
+      qa.question.toLowerCase().includes('mấy giờ') ||
+      qa.question.toLowerCase().includes('chuyến') ||
+      qa.question.toLowerCase().includes('giờ')
+    );
+    
+    if (scheduleMatch && !qaResponse) {
+      qaResponse = scheduleMatch.answer;
+    }
+
+    // Nếu đã đủ, dừng
+    if (qaResponse) break;
+  }
+
+  // Tìm thông tin lộ trình từ Markdown route
+  const routeMatches: RouteEntry[] = knowledgeService.searchRoutes(`${from} ${to}`);
+  const routeInfo = routeMatches.length > 0 ? routeMatches[0].content : undefined;
+
+  const hasDirectAnswer = departures.length > 0 || !!qaResponse;
 
   return {
     operator_id: operatorId,
     from: normalizedFrom.canonical,
     to: normalizedTo.canonical,
     departures,
-    source: 'knowledge',
-    qa_response: qaResponse
+    source: departures.length > 0 ? 'base_schedule' : (qaResponse ? 'markdown_qa' : 'not_found'),
+    qa_response: qaResponse,
+    route_info: routeInfo,
+    has_direct_answer: hasDirectAnswer,
   };
 }
