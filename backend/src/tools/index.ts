@@ -161,7 +161,7 @@ export const tools: ChatCompletionTool[] = [
           },
           departure_date: {
             type: 'string',
-            description: 'Ngày đi (format: YYYY-MM-DD)'
+            description: 'Ngày đi (định dạng: YYYY-MM-DD). Nếu khách nói "mai", "kia", "thứ mấy" thì phải tự tính toán ra ngày chính xác dựa trên thời điểm hiện tại được cung cấp trong system prompt.'
           },
           departure_time: {
             type: 'string',

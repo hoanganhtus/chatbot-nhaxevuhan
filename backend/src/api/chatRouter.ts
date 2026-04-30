@@ -25,11 +25,13 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // Lấy hoặc tạo session
-    let agent = sessions.get(session_id);
+    const sessionId = session_id || req.body.sessionId;
+    
+    let agent = sessions.get(sessionId);
     if (!agent) {
       agent = new VuHanChatAgent(operator_id);
-      if (session_id) {
-        sessions.set(session_id, agent);
+      if (sessionId) {
+        sessions.set(sessionId, agent);
       }
     }
 
@@ -38,7 +40,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      session_id: session_id || 'anonymous',
+      session_id: sessionId || 'anonymous',
       reply: response.message,
       intent: response.intent,
       booking_data: response.bookingData,
@@ -66,6 +68,10 @@ router.delete('/:session_id', (req: Request, res: Response) => {
   
   if (sessions.has(session_id)) {
     sessions.get(session_id)?.resetConversation();
+    res.json({ success: true, message: 'Session reset' });
+  } else if (req.params.session_id && sessions.has(req.params.session_id)) {
+    // support both param names and actual sessions
+    sessions.get(req.params.session_id)?.resetConversation();
     res.json({ success: true, message: 'Session reset' });
   } else {
     res.status(404).json({ error: 'Session not found' });

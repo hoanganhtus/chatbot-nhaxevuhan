@@ -63,10 +63,18 @@ export class VuHanChatAgent {
   }
 
   private initializeConversation(): void {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('vi-VN', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
     this.conversationHistory = [
       {
         role: 'system',
-        content: systemPrompt
+        content: `${systemPrompt}\n\n**THỜI GIAN HIỆN TẠI**: Hôm nay là ${dateStr}.`
       }
     ];
   }

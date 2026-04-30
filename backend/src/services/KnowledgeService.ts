@@ -30,12 +30,13 @@ export interface RouteEntry {
   phone?: string;
 }
 
-// Knowledge store: Q&A và Route từ Markdown, Prices/Schedules từ JSON
+// Knowledge store: Tất cả dữ liệu từ Markdown
 class KnowledgeService {
   private prices: PriceEntry[] = [];
   private qaPairs: QAEntry[] = [];
   private schedules: ScheduleEntry[] = [];
   private routes: RouteEntry[] = [];
+  private schedulesMarkdown: string = ''; // Raw schedule MD cho AI context
   private initialized = false;
 
   // Đường dẫn gốc tới Knowledge Store dạng Markdown
@@ -69,6 +70,9 @@ class KnowledgeService {
       'mèo vạc': ['mv'],
       'tuyên quang': ['tq'],
       'hà giang': ['hg'],
+      'hoàng su phì': ['vinh quang', 'su phì'],
+      'quản bạ': ['tam sơn', 'quyết tiến'],
+      'chiêm hoá': ['vĩnh lộc'],
     };
 
     for (const [key, values] of Object.entries(aliases)) {
@@ -135,6 +139,240 @@ class KnowledgeService {
   }
 
   /**
+   * Parse Markdown price table → PriceEntry[]
+   * Format:
+   *   # Bảng giá vé: ... (ROUTE_CODE)
+   *   ## Xe giường 40 chỗ
+   *   | Điểm đi | Điểm đến | Giá (k) |
+   *   |---------|----------|---------|
+   *   | Hà Nội  | Đồng Văn | 450     |
+   */
+  private parseMarkdownPriceTable(content: string, filename: string): PriceEntry[] {
+    const entries: PriceEntry[] = [];
+    
+    // Extract route code from title line: # Bảng giá vé: ... (HN-ĐV)
+    const titleMatch = content.match(/^#\s+.*\(([^)]+)\)/m);
+    const routeCode = titleMatch ? titleMatch[1] : filename.replace('.md', '').toUpperCase();
+    
+    // Split by ## to get vehicle sections
+    const sections = content.split(/^##\s+/m);
+    
+    for (const section of sections) {
+      if (!section.trim()) continue;
+      
+      const lines = section.split('\n');
+      const vehicleType = lines[0]?.trim();
+      
+      // Skip non-vehicle sections (like the title)
+      if (!vehicleType || vehicleType.startsWith('#') || vehicleType.startsWith('>')) continue;
+      
+      // Find markdown table rows (skip header row and separator)
+      let inTable = false;
+      let headerSkipped = false;
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        
+        // Detect table start
+        if (trimmed.startsWith('| Điểm đi') || trimmed.startsWith('|Điểm đi')) {
+          inTable = true;
+          headerSkipped = false;
+          continue;
+        }
+        
+        // Skip separator row (|---|---|---|)
+        if (inTable && !headerSkipped && trimmed.match(/^\|[-:\s|]+\|$/)) {
+          headerSkipped = true;
+          continue;
+        }
+        
+        // Parse data rows
+        if (inTable && headerSkipped && trimmed.startsWith('|')) {
+          const cells = trimmed
+            .split('|')
+            .map(c => c.trim())
+            .filter(c => c.length > 0);
+          
+          if (cells.length >= 3) {
+            const from = cells[0];
+            const to = cells[1];
+            const priceStr = cells[2].replace(/[^\d.]/g, '');
+            const price = parseFloat(priceStr);
+            
+            if (from && to && !isNaN(price) && price > 0) {
+              entries.push({
+                route: routeCode,
+                from,
+                to,
+                price,
+                vehicle: vehicleType,
+              });
+            }
+          }
+        }
+        
+        // End of table
+        if (inTable && headerSkipped && !trimmed.startsWith('|') && trimmed.length > 0) {
+          inTable = false;
+        }
+      }
+    }
+    
+    return entries;
+  }
+
+  /**
+   * Parse Markdown schedule → ScheduleEntry[]
+   * Parses the summary table at the end of schedules.md
+   */
+  private parseMarkdownSchedule(content: string): ScheduleEntry[] {
+    const entries: ScheduleEntry[] = [];
+    
+    // Parse the summary section "Tóm tắt tất cả giờ khởi hành từ Hà Nội"
+    const summaryMatch = content.match(/## Tóm tắt tất cả giờ khởi hành[\s\S]*?(?=\n---|\n## Lịch xe|$)/);
+    if (summaryMatch) {
+      const lines = summaryMatch[0].split('\n');
+      let inTable = false;
+      let headerSkipped = false;
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        
+        if (trimmed.startsWith('| Tuyến chính')) {
+          inTable = true;
+          headerSkipped = false;
+          continue;
+        }
+        
+        if (inTable && !headerSkipped && trimmed.match(/^\|[-:\s|]+\|$/)) {
+          headerSkipped = true;
+          continue;
+        }
+        
+        if (inTable && headerSkipped && trimmed.startsWith('|')) {
+          const cells = trimmed.split('|').map(c => c.trim()).filter(c => c.length > 0);
+          if (cells.length >= 3) {
+            const routeStr = cells[0]; // e.g., "Hà Nội → Xín Mần"
+            const times = cells[1];     // e.g., "05:30, 10:00, 19:20"
+            const vehicleStr = cells[2]; // e.g., "VIP (5:30), Giường (10:00, 19:20)"
+            
+            // Parse route
+            const routeParts = routeStr.split(/→|↔/).map(s => s.trim());
+            const from = routeParts[0] || '';
+            const to = routeParts[1] || '';
+            
+            // Parse times
+            const timeList = times.split(',').map(t => t.trim()).filter(t => t.match(/\d/));
+            
+            // Build a map of time → vehicle from format like "VIP (5:30), Giường (10:00, 19:20)"
+            const timeVehicleMap: Record<string, string> = {};
+            const vehicleParts = vehicleStr.match(/([^,()]+)\s*\(([^)]+)\)/g);
+            if (vehicleParts) {
+              for (const part of vehicleParts) {
+                const m = part.match(/([^(]+)\s*\(([^)]+)\)/);
+                if (m) {
+                  const vLabel = m[1].trim();
+                  const vTimes = m[2].split(',').map(t => t.trim());
+                  let resolvedVehicle = vLabel;
+                  if (vLabel.toLowerCase().includes('vip')) resolvedVehicle = 'VIP 9 chỗ';
+                  else if (vLabel.toLowerCase().includes('giường')) resolvedVehicle = 'Giường 40 chỗ';
+                  else if (vLabel.toLowerCase().includes('ghế')) resolvedVehicle = 'Ghế';
+                  for (const vt of vTimes) {
+                    timeVehicleMap[vt] = resolvedVehicle;
+                  }
+                }
+              }
+            }
+            
+            for (const time of timeList) {
+              // Determine vehicle type for this time
+              let vehicle = timeVehicleMap[time] || '';
+              if (!vehicle) {
+                // Fallback: simple matching
+                if (vehicleStr.includes('VIP') && !vehicleStr.includes('(')) {
+                  vehicle = 'VIP 9 chỗ';
+                } else if (vehicleStr.includes('Giường') && !vehicleStr.includes('(')) {
+                  vehicle = 'Giường 40 chỗ';
+                } else if (vehicleStr.includes('Ghế')) {
+                  vehicle = 'Ghế';
+                } else {
+                  vehicle = vehicleStr;
+                }
+              }
+              
+              entries.push({
+                from,
+                to,
+                time: time.replace(/[()]/g, ''),
+                vehicle,
+                note: '',
+              });
+            }
+          }
+        }
+        
+        if (inTable && headerSkipped && !trimmed.startsWith('|') && trimmed.length > 0) {
+          inTable = false;
+        }
+      }
+    }
+    
+    // Also parse "Lịch xe chiều ngược" section
+    const reverseMatch = content.match(/## Lịch xe chiều ngược[\s\S]*?(?=\n---|\n## |$)/);
+    if (reverseMatch) {
+      const lines = reverseMatch[0].split('\n');
+      let inTable = false;
+      let headerSkipped = false;
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        
+        if (trimmed.startsWith('| Tuyến')) {
+          inTable = true;
+          headerSkipped = false;
+          continue;
+        }
+        
+        if (inTable && !headerSkipped && trimmed.match(/^\|[-:\s|]+\|$/)) {
+          headerSkipped = true;
+          continue;
+        }
+        
+        if (inTable && headerSkipped && trimmed.startsWith('|')) {
+          const cells = trimmed.split('|').map(c => c.trim()).filter(c => c.length > 0);
+          if (cells.length >= 2) {
+            const routeStr = cells[0];
+            const times = cells[1];
+            const note = cells[2] || '';
+            
+            const routeParts = routeStr.split(/→|↔/).map(s => s.trim());
+            const from = routeParts[0] || '';
+            const to = routeParts[1] || '';
+            
+            const timeList = times.split(',').map(t => t.trim()).filter(t => t.match(/\d/));
+            
+            for (const time of timeList) {
+              entries.push({
+                from,
+                to,
+                time: time.replace(/[()~]/g, '').trim(),
+                vehicle: 'Giường 40 chỗ',
+                note,
+              });
+            }
+          }
+        }
+        
+        if (inTable && headerSkipped && !trimmed.startsWith('|') && trimmed.length > 0) {
+          inTable = false;
+        }
+      }
+    }
+    
+    return entries;
+  }
+
+  /**
    * Đọc và ghép tất cả file .md trong một thư mục
    */
   private readMarkdownDir(dir: string): string {
@@ -149,7 +387,25 @@ class KnowledgeService {
   }
 
   /**
-   * Khởi tạo: Đọc Markdown trước, fallback sang JSON nếu thiếu
+   * Đọc tất cả MD price tables trong một thư mục
+   */
+  private readMarkdownPriceTables(dir: string): PriceEntry[] {
+    if (!fs.existsSync(dir)) return [];
+    const allEntries: PriceEntry[] = [];
+    
+    for (const file of fs.readdirSync(dir)) {
+      if (file.endsWith('.md')) {
+        const content = fs.readFileSync(path.join(dir, file), 'utf-8');
+        const entries = this.parseMarkdownPriceTable(content, file);
+        allEntries.push(...entries);
+      }
+    }
+    
+    return allEntries;
+  }
+
+  /**
+   * Khởi tạo: Đọc toàn bộ dữ liệu từ Markdown Knowledge Store
    */
   async init(): Promise<void> {
     if (this.initialized) return;
@@ -193,22 +449,54 @@ class KnowledgeService {
       console.warn('[KnowledgeService] ⚠️ Could not read Route Markdown.');
     }
 
-    // 3. Prices từ JSON (giữ nguyên, quá lớn để chuyển sang MD)
-    const pricesPath = path.join(__dirname, '../../knowledge/prices.json');
-    if (fs.existsSync(pricesPath)) {
-      this.prices = JSON.parse(fs.readFileSync(pricesPath, 'utf-8'));
-      console.log(`[KnowledgeService] ✅ Loaded ${this.prices.length} price entries from JSON`);
+    // 3. Prices từ Markdown ticket_fares__tables/
+    try {
+      const tablesDir = path.join(this.mdStorePath, 'route', 'ticket_fares__tables');
+      this.prices = this.readMarkdownPriceTables(tablesDir);
+      if (this.prices.length > 0) {
+        console.log(`[KnowledgeService] ✅ Loaded ${this.prices.length} price entries from Markdown tables`);
+      }
+    } catch (err) {
+      console.warn('[KnowledgeService] ⚠️ Could not read price Markdown tables.');
     }
 
-    // 4. Schedules từ JSON
-    const schedulesPath = path.join(__dirname, '../../knowledge/schedules.json');
-    if (fs.existsSync(schedulesPath)) {
-      this.schedules = JSON.parse(fs.readFileSync(schedulesPath, 'utf-8'));
-      console.log(`[KnowledgeService] ✅ Loaded ${this.schedules.length} schedule entries from JSON`);
+    // Fallback: prices.json nếu MD tables trống
+    if (this.prices.length === 0) {
+      const pricesPath = path.join(__dirname, '../../knowledge/prices.json');
+      if (fs.existsSync(pricesPath)) {
+        this.prices = JSON.parse(fs.readFileSync(pricesPath, 'utf-8'));
+        console.log(`[KnowledgeService] ✅ Loaded ${this.prices.length} price entries from legacy JSON`);
+      }
+    }
+
+    // 4. Schedules từ Markdown schedules.md
+    try {
+      const scheduleMdPath = path.join(this.mdStorePath, 'route', 'schedules.md');
+      if (fs.existsSync(scheduleMdPath)) {
+        const scheduleContent = fs.readFileSync(scheduleMdPath, 'utf-8');
+        this.schedulesMarkdown = scheduleContent;
+        this.schedules = this.parseMarkdownSchedule(scheduleContent);
+        console.log(`[KnowledgeService] ✅ Loaded ${this.schedules.length} schedule entries from Markdown`);
+      }
+    } catch (err) {
+      console.warn('[KnowledgeService] ⚠️ Could not read Schedule Markdown.');
+    }
+
+    // Fallback: schedules.json nếu MD trống (dù data bị lỗi, giữ để phòng)
+    if (this.schedules.length === 0) {
+      const schedulesPath = path.join(__dirname, '../../knowledge/schedules.json');
+      if (fs.existsSync(schedulesPath)) {
+        try {
+          this.schedules = JSON.parse(fs.readFileSync(schedulesPath, 'utf-8'));
+          console.log(`[KnowledgeService] ✅ Loaded ${this.schedules.length} schedule entries from legacy JSON`);
+        } catch {
+          console.warn('[KnowledgeService] ⚠️ Could not parse legacy schedules.json');
+        }
+      }
     }
 
     this.initialized = true;
-    console.log('[KnowledgeService] 🚀 Knowledge Store ready.');
+    console.log('[KnowledgeService] 🚀 Knowledge Store ready (Markdown-first).');
   }
 
   // Tìm giá vé
@@ -235,6 +523,13 @@ class KnowledgeService {
       );
     }
     return results;
+  }
+
+  /**
+   * Lấy toàn bộ nội dung schedules.md (cho AI context)
+   */
+  getSchedulesMarkdown(): string {
+    return this.schedulesMarkdown;
   }
 
   /**
@@ -291,7 +586,7 @@ class KnowledgeService {
       totalRoutes: this.routes.length,
       uniqueLocations: this.getUniqueLocations().length,
       vehicleTypes: this.getVehicleTypes(),
-      knowledgeSource: this.qaPairs[0]?.source ?? 'unknown',
+      knowledgeSource: 'markdown',
     };
   }
 }
