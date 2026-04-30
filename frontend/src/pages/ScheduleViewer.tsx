@@ -40,10 +40,10 @@ export default function ScheduleViewer() {
   const displaySchedules = schedules.length > 0 ? schedules : sampleSchedules
 
   return (
-    <div>
+    <div style={{ padding: '32px', overflowY: 'auto', flex: 1, width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
       <div className="card">
         <h2>🕐 Lịch chạy xe</h2>
-        <p style={{ color: '#666', marginTop: 8 }}>
+        <p className="subtitle">
           Xem lịch xe chạy hàng ngày từ Mỹ Đình
         </p>
       </div>

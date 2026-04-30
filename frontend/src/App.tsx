@@ -1,32 +1,21 @@
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import Sidebar from './components/Sidebar'
 import RouteChecker from './pages/RouteChecker'
 import ScheduleViewer from './pages/ScheduleViewer'
-import ChatTester from './pages/ChatTester'
+import GeminiChat from './pages/GeminiChat'
 
 function App() {
   return (
     <BrowserRouter>
-      <div className="app">
-        <nav className="nav">
-          <h1>🚌 Nhà xe Vũ Hán - Route Console</h1>
-          <div className="nav-links">
-            <NavLink to="/" className={({ isActive }) => isActive ? 'active' : ''}>
-              Kiểm tra tuyến
-            </NavLink>
-            <NavLink to="/schedule" className={({ isActive }) => isActive ? 'active' : ''}>
-              Xem lịch chạy
-            </NavLink>
-            <NavLink to="/chat" className={({ isActive }) => isActive ? 'active' : ''}>
-              Test Chatbot
-            </NavLink>
-          </div>
-        </nav>
+      <div className="app-layout">
+        <Sidebar />
         
-        <main className="container">
+        <main className="main-content">
           <Routes>
-            <Route path="/" element={<RouteChecker />} />
+            <Route path="/" element={<Navigate to="/chat" replace />} />
+            <Route path="/chat" element={<GeminiChat />} />
+            <Route path="/route-check" element={<RouteChecker />} />
             <Route path="/schedule" element={<ScheduleViewer />} />
-            <Route path="/chat" element={<ChatTester />} />
           </Routes>
         </main>
       </div>
@@ -35,3 +24,4 @@ function App() {
 }
 
 export default App
+

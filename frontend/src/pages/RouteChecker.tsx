@@ -34,10 +34,10 @@ export default function RouteChecker() {
   ]
 
   return (
-    <div>
+    <div style={{ padding: '32px', overflowY: 'auto', flex: 1, width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
       <div className="card">
         <h2>🗺️ Kiểm tra tuyến đường</h2>
-        <p style={{ color: '#666', marginTop: 8 }}>
+        <p className="subtitle">
           Kiểm tra tính hợp lệ của tuyến đường và giá vé
         </p>
       </div>
@@ -106,7 +106,7 @@ export default function RouteChecker() {
 
         <div className="card">
           <h3>📍 Tuyến nhanh</h3>
-          <p style={{ color: '#666', marginBottom: 16 }}>Click để test nhanh</p>
+          <p className="subtitle">Click để test nhanh</p>
           
           {quickRoutes.map((route, index) => (
             <button
@@ -115,17 +115,7 @@ export default function RouteChecker() {
                 setFrom(route.from)
                 setTo(route.to)
               }}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '12px',
-                marginBottom: '8px',
-                border: '1px solid #ddd',
-                borderRadius: '6px',
-                background: 'white',
-                textAlign: 'left',
-                cursor: 'pointer'
-              }}
+              className="quick-route-btn"
             >
               {route.from} → {route.to}
             </button>
